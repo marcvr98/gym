@@ -204,24 +204,12 @@ def login_and_fetch_schedule(keep_browser=False, headless=True):
                         if DEBUG_SCRAPER:
                             print('[DEBUG] Esperando a que la agenda del miércoles cargue...')
                         time.sleep(3.5)
-                        if DEBUG_SCRAPER:
-                            html_debug = driver.page_source
-                            soup_debug = BeautifulSoup(html_debug, 'lxml')
-                            blocks_debug = soup_debug.select("div[id^='bloqueClass']")
-                            for idx, bloque in enumerate(blocks_debug[:12]):
-                                txt = bloque.get_text(' ', strip=True)
-                                print(f"[DEBUG] bloque[{idx}] -> {txt[:180]}")
+                        
                     except Exception:
                         pass
         except Exception:
             pass
         html = driver.page_source
-        if DEBUG_SCRAPER:
-            print(f"[DEBUG] URL del horario: {driver.current_url}")
-            print(f"[DEBUG] Longitud del HTML: {len(html)} bytes")
-            soup_debug = BeautifulSoup(html, 'lxml')
-            title_debug = soup_debug.title.get_text(' ', strip=True) if soup_debug.title else 'N/A'
-            print(f"[DEBUG] Título de la página: {title_debug}")
         if keep_browser:
             return driver, html
         return html
@@ -240,7 +228,7 @@ def find_next_endurance_occupation(html):
 
     for i, bloque in enumerate(blocks):
         text = bloque.get_text(' ', strip=True)
-        if i > 20 and DEBUG_SCRAPER:
+        if i >= 20 and DEBUG_SCRAPER:
             print(f"[DEBUG] bloque[{i}] -> {text}")
         if not text:
             continue
