@@ -37,7 +37,7 @@ HORA_INICIO = "19:15"
 HORA_FIN = "20:15"
 
 TIMEOUT = 30
-UMBRAL_PLAZAS_LIBRES = 7
+UMBRAL_PLAZAS_LIBRES = 2
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
@@ -939,7 +939,7 @@ def enviar_correo(asunto, cuerpo):
             "Faltan EMAIL_FROM, EMAIL_PASSWORD "
             "o EMAIL_TO; no se envía correo."
         )
-        return
+        return False
 
     mensaje = MIMEMultipart()
     mensaje["From"] = EMAIL_FROM
@@ -973,7 +973,7 @@ def enviar_correo(asunto, cuerpo):
         )
 
     print("Correo de aviso enviado.")
-
+    return True
 
 # ---------------------------------------------------------------------
 # Ejecución
@@ -1099,7 +1099,7 @@ def ejecutar(
             libres is not None
             and libres <= UMBRAL_PLAZAS_LIBRES
         ):
-            enviar_correo(
+            enviado = enviar_correo(
                 asunto=(
                     "🏋️ Quedan pocas plazas para "
                     f"{CLASE_BUSCADA} {HORA_INICIO}"
@@ -1112,6 +1112,14 @@ def ejecutar(
                     f"{ocupacion}"
                 ),
             )
+
+            if enviado:
+                github_output = os.getenv("GITHUB_OUTPUT")
+                if github_output:
+                    with open(github_output, "a") as f:
+                        f.write(
+                            "mail_sent=true\n"
+                        )
 
     except Exception:
         guardar_archivos_diagnostico(

@@ -2,10 +2,13 @@ name: Aviso plazas ENDURANCE
 
 on:
   schedule:
-    # Cada 30 min, de 09:00 a 18:00 UTC.
-    # Ajustado para cubrir el rango de horario de interés sin ejecutar fuera de ese marco.
     - cron: '*/30 9-18 * * *'
-  workflow_dispatch: {}   # permite lanzarlo a mano desde la pestaña Actions
+
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: write
 
 jobs:
   check-plazas:
@@ -23,7 +26,7 @@ jobs:
 
       - name: Instalar dependencias Python
         run: |
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Instalar Chrome
@@ -33,6 +36,7 @@ jobs:
           chrome-version: stable
 
       - name: Ejecutar script de comprobación
+        id: comprobar
         env:
           USUARIO: ${{ secrets.USUARIO }}
           CONTRASENA: ${{ secrets.CONTRASENA }}
@@ -41,4 +45,14 @@ jobs:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
           DEBUG_SCRAPER: "1"
+          TZ: Europe/Madrid
         run: python selenium_scraper.py
+
+      - name: Desactivar workflow después del correo
+        if: steps.comprobar.outputs.mail_sent == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "El correo se ha enviado. Desactivando el workflow..."
+          gh workflow disable "$GITHUB_WORKFLOW" \
+            --repo "$GITHUB_REPOSITORY"
