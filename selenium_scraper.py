@@ -234,19 +234,25 @@ def find_next_endurance_occupation(html):
             continue
 
         if '19:15' not in text or '20:15' not in text or 'ENDURANCE' not in text.upper():
-            print("entra")
             continue
 
         occupation = bloque.select_one('span.rvOcupacion')
         if occupation:
+            texto_occupation = occupation.get_text(' ', strip=True).strip()
+            if DEBUG_SCRAPER:
+                print(f"[DEBUG] Bloque {i} con ocupación: {texto_occupation}")
             return occupation.get_text(' ', strip=True).strip()
 
         match = re.search(r'Occupied places\s*(\d+\s*/\s*\d+)', text, flags=re.I)
         if match:
+            if DEBUG_SCRAPER:
+                print(f"[DEBUG] Bloque {i} con ocupación (regex): {match.group(0)}")
             return match.group(0).strip()
 
         match = re.search(r'(\d+\s*/\s*\d+)', text)
         if match:
+            if DEBUG_SCRAPER:
+                print(f"[DEBUG] Bloque {i} con ocupación (regex): {match.group(0)}")
             return match.group(0).strip()
 
         if DEBUG_SCRAPER:
