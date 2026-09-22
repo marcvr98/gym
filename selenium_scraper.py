@@ -256,23 +256,31 @@ def find_next_endurance_occupation(html):
         if 'ENDURANCE' not in text.upper():
             continue
 
-        margen = clase.find('div', class_='rvMarginDesc')
-        occupation = margen.find('span', class_='rvOcupacion') if margen else None
-        if occupation is None:
-            occupation = clase.find('span', class_='rvOcupacion')
-        if occupation is None:
-            occupation = soup.find('span', string=re.compile(r'\d+\s*/\s*\d+'))
+        occupation_text = None
+        for node in [clase.find('div', class_='rvMarginDesc'), clase]:
+            if node is None:
+                continue
+            occupation = node.find('span', class_='rvOcupacion')
+            if occupation is not None:
+                occupation_text = occupation.get_text(' ', strip=True)
+                break
 
-        if occupation is None:
+        if occupation_text is None:
+            # fallback robusto: busca un patrón de ocupación en todo el texto del bloque
+            match = re.search(r'(\d+)\s*/\s*(\d+)', text)
+            if match:
+                occupation_text = match.group(0)
+            else:
+                match = re.search(r'(\d+)\s*places?\b', text, flags=re.I)
+                if match:
+                    occupation_text = match.group(0)
+
+        if occupation_text is None:
             if DEBUG_SCRAPER:
                 print(f"[DEBUG] Se encontró un bloque con horario/nombre, pero no se halló la ocupación: {text[:400]}")
-            return None
+            continue
 
-        texto = occupation.get_text(' ', strip=True)
-        if not texto:
-            texto = text
-        plazas = texto.split('places ', 1)[1] if 'places ' in texto.lower() else texto
-        return plazas.strip()
+        return occupation_text.strip()
 
     if DEBUG_SCRAPER:
         print("[DEBUG] No se encontró ningún bloque con 'ENDURANCE' y '19:15 - 20:15' en el documento.")
