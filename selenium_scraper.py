@@ -238,14 +238,10 @@ def find_next_endurance_occupation(html):
 
     blocks = soup.select("div[id^='bloqueClass']")
 
-    if DEBUG_SCRAPER:
-        print(f"[DEBUG] Bloques de clase analizados: {len(blocks)}")
-        for idx, bloque in enumerate(blocks[:20]):
-            text = bloque.get_text(' ', strip=True)
-            print(f"[DEBUG] bloque[{idx}] -> {text[:200]}")
-
-    for bloque in blocks:
+    for i, bloque in enumerate(blocks):
         text = bloque.get_text(' ', strip=True)
+        if i > 20 and DEBUG_SCRAPER:
+            print(f"[DEBUG] bloque[{i}] -> {text}")
         if not text:
             continue
 
