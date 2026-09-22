@@ -234,6 +234,7 @@ def find_next_endurance_occupation(html):
             continue
 
         if '19:15' not in text or '20:15' not in text or 'ENDURANCE' not in text.upper():
+            print("entra")
             continue
 
         occupation = bloque.select_one('span.rvOcupacion')
