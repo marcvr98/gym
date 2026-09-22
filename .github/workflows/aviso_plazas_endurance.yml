@@ -1,0 +1,45 @@
+name: Aviso plazas ENDURANCE
+
+on:
+  schedule:
+    # Cada 30 min, de 06:00 a 18:00 UTC (cubre aprox. 08:00-20:00 hora española
+    # tanto en horario de invierno como de verano). El cron de GitHub Actions
+    # SIEMPRE usa UTC y no se ajusta solo al cambio de hora, así que si notas
+    # que se desfasa una hora en marzo/octubre, es normal: ajusta el rango.
+    - cron: '*/30 6-18 * * *'
+  workflow_dispatch: {}   # permite lanzarlo a mano desde la pestaña Actions
+
+jobs:
+  check-plazas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout del repo
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias Python
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Instalar Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+
+      - name: Ejecutar script de comprobación
+        env:
+          USUARIO: ${{ secrets.USUARIO }}
+          CONTRASENA: ${{ secrets.CONTRASENA }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: python selenium_scraper.py

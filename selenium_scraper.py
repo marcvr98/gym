@@ -1,5 +1,10 @@
 import os
+import re
 import time
+import smtplib
+import ssl
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from selenium import webdriver
@@ -25,6 +30,60 @@ USERNAME_SELECTOR = 'input[name="username"]'
 PASSWORD_SELECTOR = 'input[name="password"]'
 SUBMIT_SELECTOR = 'button[type="submit"]'
 
+# --- Configuración del aviso por email ----------------------------------
+# Umbral: si quedan estas plazas o menos, se envía el correo
+UMBRAL_PLAZAS_LIBRES = 2
+
+SMTP_SERVER = "smtp.gmail.com"   # cambia esto si no usas Gmail
+SMTP_PORT = 465                  # 465 = SSL directo
+
+EMAIL_FROM = os.getenv('EMAIL_FROM')
+EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
+EMAIL_TO = os.getenv('EMAIL_TO')
+
+
+def enviar_correo(asunto: str, cuerpo: str) -> None:
+    """Envía un correo simple en texto plano."""
+    if not (EMAIL_FROM and EMAIL_PASSWORD and EMAIL_TO):
+        print('Faltan variables de entorno EMAIL_FROM/EMAIL_PASSWORD/EMAIL_TO; no se envía correo.')
+        return
+
+    mensaje = MIMEMultipart()
+    mensaje["From"] = EMAIL_FROM
+    mensaje["To"] = EMAIL_TO
+    mensaje["Subject"] = asunto
+    mensaje.attach(MIMEText(cuerpo, "plain"))
+
+    contexto = ssl.create_default_context()
+    with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=contexto) as servidor:
+        servidor.login(EMAIL_FROM, EMAIL_PASSWORD)
+        servidor.sendmail(EMAIL_FROM, EMAIL_TO, mensaje.as_string())
+    print('Correo de aviso enviado.')
+
+
+def calcular_plazas_libres(texto: str):
+    """
+    Interpreta el texto crudo devuelto por el sitio (variable 'res') como
+    un número de plazas libres. Soporta dos formatos habituales:
+      - "reservadas/totales", p.ej. "9/12"  -> libres = totales - reservadas
+      - un único número que ya representa las plazas libres, p.ej. "4"
+    Devuelve None si no se puede interpretar.
+    """
+    if not texto:
+        return None
+    texto = texto.strip()
+
+    m = re.search(r'(\d+)\s*/\s*(\d+)', texto)
+    if m:
+        reservadas, totales = int(m.group(1)), int(m.group(2))
+        return max(totales - reservadas, 0)
+
+    m = re.search(r'(\d+)', texto)
+    if m:
+        return int(m.group(1))
+
+    return None
+
 
 def build_driver(headless=True):
     options = webdriver.ChromeOptions()
@@ -37,6 +96,8 @@ def build_driver(headless=True):
 
 
 def login_and_fetch_schedule(keep_browser=False, headless=True):
+    global DAY_CHECK_RESULT
+
     if not USER or not PASS:
         raise SystemExit('Las variables de entorno USUARIO/CONTRASENA no están definidas')
 
@@ -106,7 +167,6 @@ def login_and_fetch_schedule(keep_browser=False, headless=True):
             wk = driver.find_element(By.XPATH, "//body//div[contains(@class,'weekNavigator')]//div[@id='weekDays']")
             anchors = wk.find_elements(By.TAG_NAME, 'a')
             active_index = None
-            import re
             for i,a in enumerate(anchors):
                 cls = a.get_attribute('class') or ''
                 if 'active' in cls:
@@ -148,7 +208,7 @@ def login_and_fetch_schedule(keep_browser=False, headless=True):
 def find_next_endurance_occupation(html):
     soup = BeautifulSoup(html, 'lxml')
     # find all blocks that contain 'endurance' and a time
-    
+
     bloque_principal = soup.find('div', id='clasesDiaSel')
     clases = bloque_principal.find_all('div') if bloque_principal else []
     if clases:
@@ -164,7 +224,7 @@ def find_next_endurance_occupation(html):
                     texto = occupation.get_text() if occupation else ''
                     plazas = texto.split('places ')[1] if 'places ' in texto else texto
                     return plazas.strip()  # e.g., "3/20" or "un número desconocido de personas"
-                
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
@@ -184,8 +244,19 @@ if __name__ == '__main__':
     else:
         res = find_next_endurance_occupation(html)
 
+        if not res:
+            print('No se encontró un evento "endurance" a las 19:15 en el DOM cargado')
+        else:
+            print(f'Hay {res} plazas disponibles para el próximo endurance a las 19:15')
 
-    if not res:
-        print('No se encontró un evento "endurance" a las 19:15 en el DOM cargado')
-    else:
-        print(f'Hay {res} plazas disponibles para el próximo endurance a las 19:15')
+            libres = calcular_plazas_libres(res)
+            print(f'(texto crudo interpretado como {libres} plazas libres)')
+
+            if libres is not None and libres <= UMBRAL_PLAZAS_LIBRES:
+                enviar_correo(
+                    asunto='🏋️ Quedan pocas plazas para ENDURANCE 19:15',
+                    cuerpo=(
+                        f'Quedan {libres} plazas libres para la clase ENDURANCE de las 19:15.\n'
+                        f'Texto original del sitio: "{res}"'
+                    )
+                )
