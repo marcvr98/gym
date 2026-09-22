@@ -238,13 +238,14 @@ def find_next_endurance_occupation(html):
 
         
         occupation = bloque.find('div', class_='rvMarginDesc')
+        if DEBUG_SCRAPER:
+            print(f"[DEBUG] Bloque {i} con ocupación (div): {occupation}")
         if occupation:
             spans = occupation.find_all('span')
             for span in spans:
-                if 'rvOcupacion' in span.get('class', []):
-                    if DEBUG_SCRAPER:
-                        print(f"[DEBUG] Bloque {i} con ocupación (span): {span.get_text(strip=True)}")
-                    return span.get_text(strip=True)
+                if DEBUG_SCRAPER:
+                    print(f"[DEBUG] Bloque {i} con ocupación (span): {span.get_text(strip=True)}")
+                #return span.get_text(strip=True)
                 
         match = re.search(r'Occupied places\s*(\d+\s*/\s*\d+)', text, flags=re.I)
         if match:
