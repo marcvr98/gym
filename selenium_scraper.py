@@ -194,34 +194,124 @@ def realizar_login(driver):
     contrasena.clear()
     contrasena.send_keys(PASSWORD)
 
-    boton = driver.find_element(
-        By.CSS_SELECTOR,
-        SUBMIT_SELECTOR,
-    )
-    boton.click()
-
-    WebDriverWait(driver, TIMEOUT).until(
-        lambda d: d.current_url != LOGIN_URL
-    )
-
-    debug(f"URL después del login: {driver.current_url}")
-
-
-def esperar_agenda(driver):
-    WebDriverWait(driver, TIMEOUT).until(
-        lambda d: (
-            d.execute_script("return document.readyState") == "complete"
-            and (
-                d.find_elements(By.ID, "clasesDiaSel")
-                or d.find_elements(By.CSS_SELECTOR, ".weekNavigator")
-                or d.find_elements(
-                    By.CSS_SELECTOR,
-                    "div[id^='bloqueClass']",
-                )
-            )
+    boton = WebDriverWait(driver, TIMEOUT).until(
+        lambda d: d.find_element(
+            By.CSS_SELECTOR,
+            SUBMIT_SELECTOR,
         )
     )
 
+    driver.execute_script(
+        "arguments[0].scrollIntoView({block: 'center'});",
+        boton,
+    )
+
+    url_antes = driver.current_url.rstrip("/")
+
+    print(f"[DEBUG] URL antes del login: {driver.current_url}")
+
+    boton.click()
+
+    try:
+        WebDriverWait(driver, TIMEOUT).until(
+            lambda d: (
+                d.current_url.rstrip("/") != url_antes
+                or not d.find_elements(
+                    By.CSS_SELECTOR,
+                    USERNAME_SELECTOR,
+                )
+            )
+        )
+    except TimeoutException as exc:
+        print(
+            f"[ERROR] El login no terminó. "
+            f"URL actual: {driver.current_url}"
+        )
+
+        try:
+            mensajes = driver.find_elements(
+                By.CSS_SELECTOR,
+                ".alert, .error, .errorMessage, "
+                ".validation-summary-errors",
+            )
+
+            for mensaje in mensajes:
+                if mensaje.is_displayed() and mensaje.text.strip():
+                    print(
+                        f"[ERROR] Mensaje de la web: "
+                        f"{mensaje.text.strip()}"
+                    )
+        except Exception:
+            pass
+
+        if DEBUG_SCRAPER:
+            driver.save_screenshot("login_error.png")
+
+            with open(
+                "login_error.html",
+                "w",
+                encoding="utf-8",
+            ) as archivo:
+                archivo.write(driver.page_source)
+
+        raise RuntimeError(
+            "El inicio de sesión no se completó dentro "
+            f"de {TIMEOUT} segundos."
+        ) from exc
+
+    # Esperar a que terminen posibles redirecciones.
+    time.sleep(2)
+
+    print(
+        f"[DEBUG] URL después del login: "
+        f"{driver.current_url}"
+    )
+
+def esperar_agenda(driver):
+    def agenda_disponible(d):
+        url = d.current_url.lower()
+
+        if "login.aimharder.com" in url:
+            return False
+
+        return (
+            d.find_elements(By.ID, "clasesDiaSel")
+            or d.find_elements(By.CSS_SELECTOR, ".weekNavigator")
+            or d.find_elements(
+                By.CSS_SELECTOR,
+                "div[id^='bloqueClass']",
+            )
+        )
+
+    try:
+        WebDriverWait(driver, TIMEOUT).until(
+            agenda_disponible
+        )
+    except TimeoutException as exc:
+        print(
+            f"[ERROR] La agenda no cargó. "
+            f"URL actual: {driver.current_url}"
+        )
+
+        if DEBUG_SCRAPER:
+            driver.save_screenshot("agenda_error.png")
+
+            with open(
+                "agenda_error.html",
+                "w",
+                encoding="utf-8",
+            ) as archivo:
+                archivo.write(driver.page_source)
+
+        if "login.aimharder.com" in driver.current_url.lower():
+            raise RuntimeError(
+                "La web redirigió nuevamente al login. "
+                "Comprueba los secretos USUARIO y CONTRASENA."
+            ) from exc
+
+        raise RuntimeError(
+            "La página abrió, pero no apareció la agenda."
+        ) from exc
 
 def obtener_fecha_anchor(anchor):
     onclick = anchor.get_attribute("onclick") or ""
