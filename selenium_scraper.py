@@ -1,8 +1,10 @@
+import argparse
 import os
 import re
-import time
 import smtplib
 import ssl
+import time
+
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -18,6 +20,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
 
+# ---------------------------------------------------------------------
+# Configuración
+# ---------------------------------------------------------------------
+
 LOGIN_URL = "https://login.aimharder.com"
 BASE_URL = "https://wodboxtraining.aimharder.com"
 SCHEDULE_URL = f"{BASE_URL}/schedule"
@@ -30,12 +36,12 @@ CLASE_BUSCADA = "ENDURANCE"
 HORA_INICIO = "19:15"
 HORA_FIN = "20:15"
 
+TIMEOUT = 30
 UMBRAL_PLAZAS_LIBRES = 2
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 
-TIMEOUT = 25
 ZONA_HORARIA = ZoneInfo("Europe/Madrid")
 
 load_dotenv()
@@ -48,16 +54,57 @@ EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 EMAIL_TO = os.getenv("EMAIL_TO")
 
 DEBUG_SCRAPER = os.getenv(
-    "DEBUG_SCRAPER", "false"
-).lower() in {"1", "true", "yes", "on"}
+    "DEBUG_SCRAPER",
+    "false",
+).lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 DAY_CHECK_RESULT = None
 
+
+# ---------------------------------------------------------------------
+# Utilidades
+# ---------------------------------------------------------------------
 
 def debug(mensaje):
     if DEBUG_SCRAPER:
         print(f"[DEBUG] {mensaje}")
 
+
+def guardar_archivos_diagnostico(driver, prefijo):
+    if not DEBUG_SCRAPER:
+        return
+
+    try:
+        ruta_html = f"{prefijo}.html"
+        ruta_imagen = f"{prefijo}.png"
+
+        with open(
+            ruta_html,
+            "w",
+            encoding="utf-8",
+        ) as archivo:
+            archivo.write(driver.page_source)
+
+        driver.save_screenshot(ruta_imagen)
+
+        debug(f"Diagnóstico HTML guardado en {ruta_html}")
+        debug(f"Captura guardada en {ruta_imagen}")
+
+    except Exception as exc:
+        debug(
+            f"No se pudieron guardar los archivos "
+            f"de diagnóstico: {exc!r}"
+        )
+
+
+# ---------------------------------------------------------------------
+# Navegador
+# ---------------------------------------------------------------------
 
 def build_driver(headless=True):
     options = webdriver.ChromeOptions()
@@ -65,15 +112,14 @@ def build_driver(headless=True):
     if headless:
         options.add_argument("--headless=new")
 
-    # Opciones recomendadas para GitHub Actions
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-background-networking")
     options.add_argument("--window-size=1920,1080")
-    options.add_argument("--lang=es-ES")
     options.add_argument("--force-device-scale-factor=1")
+    options.add_argument("--lang=es-ES")
 
     options.add_experimental_option(
         "prefs",
@@ -83,7 +129,9 @@ def build_driver(headless=True):
     )
 
     driver = webdriver.Chrome(
-        service=ChromeService(ChromeDriverManager().install()),
+        service=ChromeService(
+            ChromeDriverManager().install()
+        ),
         options=options,
     )
 
@@ -92,6 +140,10 @@ def build_driver(headless=True):
 
     return driver
 
+
+# ---------------------------------------------------------------------
+# Cookies y ventanas
+# ---------------------------------------------------------------------
 
 def aceptar_cookies(driver):
     selectores = [
@@ -122,14 +174,20 @@ def aceptar_cookies(driver):
             for boton in botones:
                 if boton.is_displayed() and boton.is_enabled():
                     print("Aceptando cookies...")
+
                     driver.execute_script(
                         "arguments[0].click();",
                         boton,
                     )
+
                     time.sleep(0.5)
                     return True
+
         except Exception as exc:
-            debug(f"No se pudo comprobar un selector de cookies: {exc!r}")
+            debug(
+                f"No se pudo comprobar un botón "
+                f"de cookies: {exc!r}"
+            )
 
     return False
 
@@ -144,17 +202,26 @@ def cerrar_promocion(driver):
         for boton in botones:
             if boton.is_displayed() and boton.is_enabled():
                 print("Cerrando display promocional...")
+
                 driver.execute_script(
                     "arguments[0].click();",
                     boton,
                 )
+
                 time.sleep(0.5)
                 return True
+
     except Exception as exc:
-        debug(f"No se pudo cerrar la promoción: {exc!r}")
+        debug(
+            f"No se pudo cerrar la promoción: {exc!r}"
+        )
 
     return False
 
+
+# ---------------------------------------------------------------------
+# Inicio de sesión
+# ---------------------------------------------------------------------
 
 def realizar_login(driver):
     driver.get(LOGIN_URL)
@@ -168,7 +235,10 @@ def realizar_login(driver):
     aceptar_cookies(driver)
 
     try:
-        usuario = WebDriverWait(driver, TIMEOUT).until(
+        usuario = WebDriverWait(
+            driver,
+            TIMEOUT,
+        ).until(
             lambda d: d.find_element(
                 By.CSS_SELECTOR,
                 USERNAME_SELECTOR,
@@ -179,13 +249,28 @@ def realizar_login(driver):
             By.CSS_SELECTOR,
             PASSWORD_SELECTOR,
         )
+
     except Exception:
         try:
-            usuario = driver.find_element(By.ID, "username")
-            contrasena = driver.find_element(By.ID, "password")
+            usuario = driver.find_element(
+                By.ID,
+                "username",
+            )
+
+            contrasena = driver.find_element(
+                By.ID,
+                "password",
+            )
+
         except Exception as exc:
+            guardar_archivos_diagnostico(
+                driver,
+                "login_sin_campos",
+            )
+
             raise RuntimeError(
-                "No se encontraron los campos de inicio de sesión."
+                "No se encontraron los campos "
+                "de inicio de sesión."
             ) from exc
 
     usuario.clear()
@@ -194,26 +279,33 @@ def realizar_login(driver):
     contrasena.clear()
     contrasena.send_keys(PASSWORD)
 
-    boton = WebDriverWait(driver, TIMEOUT).until(
+    boton = WebDriverWait(
+        driver,
+        TIMEOUT,
+    ).until(
         lambda d: d.find_element(
             By.CSS_SELECTOR,
             SUBMIT_SELECTOR,
         )
     )
 
+    url_antes = driver.current_url.rstrip("/")
+
+    debug(f"URL antes del login: {driver.current_url}")
+
     driver.execute_script(
         "arguments[0].scrollIntoView({block: 'center'});",
         boton,
     )
 
-    url_antes = driver.current_url.rstrip("/")
-
-    print(f"[DEBUG] URL antes del login: {driver.current_url}")
-
     boton.click()
 
     try:
-        WebDriverWait(driver, TIMEOUT).until(
+        WebDriverWait(
+            driver,
+            TIMEOUT,
+            poll_frequency=0.5,
+        ).until(
             lambda d: (
                 d.current_url.rstrip("/") != url_antes
                 or not d.find_elements(
@@ -222,10 +314,14 @@ def realizar_login(driver):
                 )
             )
         )
+
     except TimeoutException as exc:
         print(
-            f"[ERROR] El login no terminó. "
-            f"URL actual: {driver.current_url}"
+            "[ERROR] El inicio de sesión "
+            "no terminó correctamente."
+        )
+        print(
+            f"[ERROR] URL actual: {driver.current_url}"
         )
 
         try:
@@ -236,36 +332,37 @@ def realizar_login(driver):
             )
 
             for mensaje in mensajes:
-                if mensaje.is_displayed() and mensaje.text.strip():
+                texto = mensaje.text.strip()
+
+                if mensaje.is_displayed() and texto:
                     print(
-                        f"[ERROR] Mensaje de la web: "
-                        f"{mensaje.text.strip()}"
+                        f"[ERROR] Mensaje de la web: {texto}"
                     )
+
         except Exception:
             pass
 
-        if DEBUG_SCRAPER:
-            driver.save_screenshot("login_error.png")
-
-            with open(
-                "login_error.html",
-                "w",
-                encoding="utf-8",
-            ) as archivo:
-                archivo.write(driver.page_source)
+        guardar_archivos_diagnostico(
+            driver,
+            "login_error",
+        )
 
         raise RuntimeError(
-            "El inicio de sesión no se completó dentro "
+            "El login no se completó dentro "
             f"de {TIMEOUT} segundos."
         ) from exc
 
     # Esperar a que terminen posibles redirecciones.
     time.sleep(2)
 
-    print(
-        f"[DEBUG] URL después del login: "
-        f"{driver.current_url}"
+    debug(
+        f"URL después del login: {driver.current_url}"
     )
+
+
+# ---------------------------------------------------------------------
+# Carga de la agenda
+# ---------------------------------------------------------------------
 
 def esperar_agenda(driver):
     def agenda_disponible(d):
@@ -274,245 +371,490 @@ def esperar_agenda(driver):
         if "login.aimharder.com" in url:
             return False
 
-        return (
-            d.find_elements(By.ID, "clasesDiaSel")
-            or d.find_elements(By.CSS_SELECTOR, ".weekNavigator")
-            or d.find_elements(
-                By.CSS_SELECTOR,
-                "div[id^='bloqueClass']",
-            )
+        return d.execute_script(
+            """
+            return Boolean(
+                document.getElementById("clasesDiaSel")
+                || document.querySelector(".weekNavigator")
+                || document.querySelector(
+                    "div[id^='bloqueClass']"
+                )
+            );
+            """
         )
 
     try:
-        WebDriverWait(driver, TIMEOUT).until(
-            agenda_disponible
-        )
+        WebDriverWait(
+            driver,
+            TIMEOUT,
+            poll_frequency=0.5,
+        ).until(agenda_disponible)
+
     except TimeoutException as exc:
         print(
-            f"[ERROR] La agenda no cargó. "
-            f"URL actual: {driver.current_url}"
+            "[ERROR] La agenda no terminó de cargar."
+        )
+        print(
+            f"[ERROR] URL actual: {driver.current_url}"
         )
 
-        if DEBUG_SCRAPER:
-            driver.save_screenshot("agenda_error.png")
+        guardar_archivos_diagnostico(
+            driver,
+            "agenda_error",
+        )
 
-            with open(
-                "agenda_error.html",
-                "w",
-                encoding="utf-8",
-            ) as archivo:
-                archivo.write(driver.page_source)
-
-        if "login.aimharder.com" in driver.current_url.lower():
+        if (
+            "login.aimharder.com"
+            in driver.current_url.lower()
+        ):
             raise RuntimeError(
-                "La web redirigió nuevamente al login. "
-                "Comprueba los secretos USUARIO y CONTRASENA."
+                "La web volvió a la página de login. "
+                "Comprueba USUARIO y CONTRASENA."
             ) from exc
 
         raise RuntimeError(
-            "La página abrió, pero no apareció la agenda."
+            "La página abrió, pero no apareció "
+            "la agenda."
         ) from exc
 
-def obtener_fecha_anchor(anchor):
-    onclick = anchor.get_attribute("onclick") or ""
 
-    match = re.search(
-        r"weekSelDay\([\"'](\d{8})[\"']\)",
-        onclick,
+# ---------------------------------------------------------------------
+# Selección del miércoles
+# ---------------------------------------------------------------------
+
+def obtener_dias_semana(driver):
+    return driver.execute_script(
+        """
+        return Array.from(
+            document.querySelectorAll("#weekDays a")
+        ).map((elemento, indice) => {
+            const onclick =
+                elemento.getAttribute("onclick") || "";
+
+            const coincidencia = onclick.match(
+                /weekSelDay\\(["'](\\d{8})["']\\)/
+            );
+
+            return {
+                indice: indice,
+                texto: (
+                    elemento.innerText
+                    || elemento.textContent
+                    || ""
+                ).trim(),
+                clases:
+                    elemento.getAttribute("class") || "",
+                fecha: coincidencia
+                    ? coincidencia[1]
+                    : null
+            };
+        });
+        """
     )
 
-    if match:
-        return match.group(1)
 
-    return None
+def fecha_activa(driver):
+    return driver.execute_script(
+        """
+        const dias = Array.from(
+            document.querySelectorAll("#weekDays a")
+        );
+
+        for (const elemento of dias) {
+            const clases = (
+                elemento.getAttribute("class") || ""
+            ).split(/\\s+/);
+
+            if (!clases.includes("active")) {
+                continue;
+            }
+
+            const onclick =
+                elemento.getAttribute("onclick") || "";
+
+            const coincidencia = onclick.match(
+                /weekSelDay\\(["'](\\d{8})["']\\)/
+            );
+
+            return coincidencia
+                ? coincidencia[1]
+                : null;
+        }
+
+        return null;
+        """
+    )
+
+
+def hacer_click_en_dia(driver, indice):
+    return driver.execute_script(
+        """
+        const indice = arguments[0];
+
+        const dias = Array.from(
+            document.querySelectorAll("#weekDays a")
+        );
+
+        if (!dias[indice]) {
+            return false;
+        }
+
+        dias[indice].scrollIntoView({
+            block: "center"
+        });
+
+        dias[indice].click();
+
+        return true;
+        """,
+        indice,
+    )
+
+
+def clase_objetivo_cargada(driver):
+    return driver.execute_script(
+        """
+        const hora = arguments[0];
+        const clase = arguments[1].toUpperCase();
+
+        const bloques = Array.from(
+            document.querySelectorAll(
+                "div[id^='bloqueClass']"
+            )
+        );
+
+        return bloques.some((bloque) => {
+            const texto = (
+                bloque.innerText
+                || bloque.textContent
+                || ""
+            )
+                .replace(/\\s+/g, " ")
+                .trim()
+                .toUpperCase();
+
+            return (
+                texto.includes(hora)
+                && texto.includes(clase)
+            );
+        });
+        """,
+        HORA_INICIO,
+        CLASE_BUSCADA,
+    )
 
 
 def seleccionar_miercoles(driver):
     global DAY_CHECK_RESULT
 
-    navegador = WebDriverWait(driver, TIMEOUT).until(
-        lambda d: d.find_element(
-            By.XPATH,
-            "//div[contains(@class,'weekNavigator')]"
-            "//div[@id='weekDays']",
+    try:
+        WebDriverWait(
+            driver,
+            TIMEOUT,
+            poll_frequency=0.5,
+        ).until(
+            lambda d: len(obtener_dias_semana(d)) > 0
         )
-    )
 
-    anchors = navegador.find_elements(By.TAG_NAME, "a")
+    except TimeoutException as exc:
+        guardar_archivos_diagnostico(
+            driver,
+            "sin_dias_semana",
+        )
 
-    if not anchors:
         raise RuntimeError(
-            "No se encontraron días en el navegador semanal."
-        )
+            "No se encontraron los días "
+            "del navegador semanal."
+        ) from exc
 
-    active_index = None
-    fecha_activa = None
+    dias = obtener_dias_semana(driver)
 
-    for indice, anchor in enumerate(anchors):
-        clases = anchor.get_attribute("class") or ""
+    activo = None
 
-        if "active" in clases.split():
-            active_index = indice
-            fecha_activa = obtener_fecha_anchor(anchor)
+    for dia in dias:
+        clases = dia.get("clases", "").split()
+
+        if "active" in clases:
+            activo = dia
             break
 
-    if active_index is None:
+    if activo is None:
+        guardar_archivos_diagnostico(
+            driver,
+            "sin_dia_activo",
+        )
+
         raise RuntimeError(
             "No se pudo identificar el día activo."
         )
 
+    active_index = activo["indice"]
+
     debug(
         f"Día activo: índice={active_index}, "
-        f"fecha={fecha_activa}, "
-        f"texto={anchors[active_index].text!r}"
+        f"fecha={activo.get('fecha')}, "
+        f"texto={activo.get('texto')!r}"
     )
 
-    # Posiciones esperadas:
-    # 0 = lunes, 1 = martes, 2 = miércoles
+    # Índices esperados:
+    # 0 = lunes
+    # 1 = martes
+    # 2 = miércoles
+    # 3 = jueves
+    # etc.
     if active_index >= 3:
         DAY_CHECK_RESULT = "passed_wednesday"
+
         print(
             "El día activo es posterior al miércoles; "
             "no se consultarán más clases."
         )
+
         return False
 
     if active_index == 2:
         DAY_CHECK_RESULT = "already_wednesday"
+
         print("El día activo ya es miércoles.")
-        return True
 
-    if active_index != 1:
-        DAY_CHECK_RESULT = "not_tuesday"
+    elif active_index == 1:
+        indice_miercoles = active_index + 1
+
+        if len(dias) <= indice_miercoles:
+            raise RuntimeError(
+                "No existe un enlace para el miércoles."
+            )
+
+        objetivo = dias[indice_miercoles]
+        fecha_miercoles = objetivo.get("fecha")
+
+        if not fecha_miercoles:
+            raise RuntimeError(
+                "No se pudo determinar la fecha "
+                "del miércoles."
+            )
+
         print(
-            "El día activo no es martes. "
-            "No se seleccionará otro día automáticamente."
+            "El día activo parece ser martes; "
+            "selecciono el siguiente día (miércoles)."
         )
+
+        debug(
+            f"Fecha objetivo del miércoles: "
+            f"{fecha_miercoles}, "
+            f"texto={objetivo.get('texto')!r}"
+        )
+
+        click_realizado = hacer_click_en_dia(
+            driver,
+            indice_miercoles,
+        )
+
+        if not click_realizado:
+            raise RuntimeError(
+                "No se pudo pulsar el miércoles."
+            )
+
+        debug(
+            "Esperando a que la agenda "
+            "del miércoles cargue..."
+        )
+
+        try:
+            WebDriverWait(
+                driver,
+                TIMEOUT,
+                poll_frequency=0.5,
+            ).until(
+                lambda d: fecha_activa(d)
+                == fecha_miercoles
+            )
+
+        except TimeoutException as exc:
+            guardar_archivos_diagnostico(
+                driver,
+                "miercoles_no_activo",
+            )
+
+            raise RuntimeError(
+                "Se pulsó el miércoles, pero no pasó "
+                "a ser el día activo."
+            ) from exc
+
+        DAY_CHECK_RESULT = "clicked_to_wednesday"
+
+    else:
+        DAY_CHECK_RESULT = "before_tuesday"
+
+        print(
+            "El día activo es anterior al martes. "
+            "No se cambiará automáticamente "
+            "al miércoles."
+        )
+
         return False
 
-    if len(anchors) <= active_index + 1:
+    # Esperar a que aparezcan bloques en el DOM actual.
+    try:
+        WebDriverWait(
+            driver,
+            TIMEOUT,
+            poll_frequency=0.5,
+        ).until(
+            lambda d: d.execute_script(
+                """
+                return document.querySelectorAll(
+                    "div[id^='bloqueClass']"
+                ).length > 0;
+                """
+            )
+        )
+
+    except TimeoutException as exc:
+        guardar_archivos_diagnostico(
+            driver,
+            "miercoles_sin_bloques",
+        )
+
         raise RuntimeError(
-            "No existe un enlace para el miércoles."
+            "El miércoles está seleccionado, "
+            "pero no aparecieron bloques de clases."
+        ) from exc
+
+    # Esperar específicamente a la clase buscada.
+    try:
+        WebDriverWait(
+            driver,
+            TIMEOUT,
+            poll_frequency=0.5,
+        ).until(clase_objetivo_cargada)
+
+    except TimeoutException:
+        print(
+            f"[ERROR] La agenda del miércoles cargó, "
+            f"pero no apareció {CLASE_BUSCADA} "
+            f"a las {HORA_INICIO}."
         )
 
-    target = anchors[active_index + 1]
-    fecha_miercoles = obtener_fecha_anchor(target)
-
-    print(
-        "El día activo parece ser martes; "
-        "selecciono el siguiente día (miércoles)."
-    )
-
-    debug(
-        f"Fecha objetivo del miércoles: {fecha_miercoles}, "
-        f"texto={target.text!r}"
-    )
-
-    driver.execute_script(
-        "arguments[0].scrollIntoView({block: 'center'});",
-        target,
-    )
-    driver.execute_script("arguments[0].click();", target)
-
-    debug("Esperando a que la agenda del miércoles cargue...")
-
-    def miercoles_activo(d):
-        elementos = d.find_elements(
-            By.CSS_SELECTOR,
-            "#weekDays a",
+        guardar_archivos_diagnostico(
+            driver,
+            "miercoles_sin_endurance",
         )
-
-        for elemento in elementos:
-            clases = elemento.get_attribute("class") or ""
-            fecha = obtener_fecha_anchor(elemento)
-
-            if (
-                "active" in clases.split()
-                and fecha_miercoles
-                and fecha == fecha_miercoles
-            ):
-                return True
 
         return False
 
-    WebDriverWait(driver, TIMEOUT).until(miercoles_activo)
-
-    # Esperar a que existan bloques de clases.
-    WebDriverWait(driver, TIMEOUT).until(
-        lambda d: len(
-            d.find_elements(
-                By.CSS_SELECTOR,
-                "div[id^='bloqueClass']",
-            )
-        ) > 0
-    )
-
-    # Esperar específicamente a ENDURANCE 19:15.
-    WebDriverWait(driver, TIMEOUT).until(
-        lambda d: any(
-            HORA_INICIO in elemento.text
-            and CLASE_BUSCADA in elemento.text.upper()
-            for elemento in d.find_elements(
-                By.CSS_SELECTOR,
-                "div[id^='bloqueClass']",
-            )
-        )
-    )
-
-    # Margen para contenido cargado mediante JavaScript/AJAX.
+    # Margen para peticiones AJAX adicionales.
     time.sleep(2)
 
-    DAY_CHECK_RESULT = "clicked_to_wednesday"
     return True
 
 
+# ---------------------------------------------------------------------
+# Búsqueda de la clase
+# ---------------------------------------------------------------------
+
 def buscar_endurance(driver):
-    bloques = driver.find_elements(
-        By.CSS_SELECTOR,
-        "div[id^='bloqueClass']",
-    )
+    evento = driver.execute_script(
+        """
+        const horaInicio = arguments[0];
+        const horaFin = arguments[1];
+        const clase = arguments[2].toUpperCase();
 
-    debug(f"Número de bloques encontrados: {len(bloques)}")
+        const bloques = Array.from(
+            document.querySelectorAll(
+                "div[id^='bloqueClass']"
+            )
+        );
 
-    for indice, bloque in enumerate(bloques):
-        texto = " ".join(bloque.text.split())
+        for (
+            let indice = 0;
+            indice < bloques.length;
+            indice++
+        ) {
+            const bloque = bloques[indice];
 
-        if DEBUG_SCRAPER:
-            debug(f"bloque[{indice}] -> {texto}")
+            const texto = (
+                bloque.innerText
+                || bloque.textContent
+                || ""
+            )
+                .replace(/\\s+/g, " ")
+                .trim();
 
-        if not texto:
-            continue
+            const textoMayusculas =
+                texto.toUpperCase();
 
-        coincide = (
-            HORA_INICIO in texto
-            and HORA_FIN in texto
-            and CLASE_BUSCADA in texto.upper()
-        )
-
-        if not coincide:
-            continue
-
-        debug(f"ENDURANCE encontrado en bloque {indice}")
-        debug(f"HTML del bloque: {bloque.get_attribute('outerHTML')}")
-
-        return {
-            "elemento": bloque,
-            "texto": texto,
-            "html": bloque.get_attribute("outerHTML"),
+            if (
+                texto.includes(horaInicio)
+                && texto.includes(horaFin)
+                && textoMayusculas.includes(clase)
+            ) {
+                return {
+                    indice: indice,
+                    texto: texto,
+                    html: bloque.outerHTML
+                };
+            }
         }
 
-    return None
+        return null;
+        """,
+        HORA_INICIO,
+        HORA_FIN,
+        CLASE_BUSCADA,
+    )
 
+    if evento:
+        debug(
+            f"ENDURANCE encontrado en bloque "
+            f"{evento['indice']}"
+        )
+        debug(
+            f"Texto del bloque: {evento['texto']}"
+        )
+        debug(
+            f"HTML del bloque: {evento['html']}"
+        )
+
+    return evento
+
+
+# ---------------------------------------------------------------------
+# Ocupación y plazas
+# ---------------------------------------------------------------------
 
 def extraer_ocupacion(texto, html=""):
-    contenido = f"{texto} {BeautifulSoup(html, 'lxml').get_text(' ', strip=True)}"
+    texto_html = BeautifulSoup(
+        html,
+        "lxml",
+    ).get_text(
+        " ",
+        strip=True,
+    )
+
+    contenido = f"{texto} {texto_html}"
 
     patrones = [
-        r"Occupied\s+places?\s*:?\s*(\d+\s*/\s*\d+)",
-        r"Booked\s*:?\s*(\d+\s*/\s*\d+)",
-        r"Reservadas?\s*:?\s*(\d+\s*/\s*\d+)",
-        r"Ocupadas?\s*:?\s*(\d+\s*/\s*\d+)",
-        r"Plazas?\s*:?\s*(\d+\s*/\s*\d+)",
+        (
+            r"Occupied\s+places?\s*:?\s*"
+            r"(\d+\s*/\s*\d+)"
+        ),
+        (
+            r"Booked\s*:?\s*"
+            r"(\d+\s*/\s*\d+)"
+        ),
+        (
+            r"Reservadas?\s*:?\s*"
+            r"(\d+\s*/\s*\d+)"
+        ),
+        (
+            r"Ocupadas?\s*:?\s*"
+            r"(\d+\s*/\s*\d+)"
+        ),
+        (
+            r"Plazas?\s*:?\s*"
+            r"(\d+\s*/\s*\d+)"
+        ),
         r"\b(\d+\s*/\s*\d+)\b",
     ]
 
@@ -529,22 +871,28 @@ def extraer_ocupacion(texto, html=""):
     return None
 
 
-def esperar_ocupacion(driver, evento):
-    elemento = evento["elemento"]
+def esperar_ocupacion(driver):
+    def consultar_ocupacion(d):
+        evento = buscar_endurance(d)
 
-    def contiene_ocupacion(_):
-        try:
-            texto = " ".join(elemento.text.split())
-            html = elemento.get_attribute("outerHTML")
-            return extraer_ocupacion(texto, html)
-        except Exception:
+        if not evento:
             return False
 
-    try:
-        ocupacion = WebDriverWait(driver, 10).until(
-            contiene_ocupacion
+        return (
+            extraer_ocupacion(
+                evento["texto"],
+                evento["html"],
+            )
+            or False
         )
-        return ocupacion
+
+    try:
+        return WebDriverWait(
+            driver,
+            10,
+            poll_frequency=0.5,
+        ).until(consultar_ocupacion)
+
     except TimeoutException:
         return None
 
@@ -563,7 +911,11 @@ def calcular_plazas_libres(texto):
     if match:
         reservadas = int(match.group(1))
         totales = int(match.group(2))
-        return max(totales - reservadas, 0)
+
+        return max(
+            totales - reservadas,
+            0,
+        )
 
     match = re.search(r"\d+", texto)
 
@@ -573,6 +925,10 @@ def calcular_plazas_libres(texto):
     return None
 
 
+# ---------------------------------------------------------------------
+# Correo
+# ---------------------------------------------------------------------
+
 def enviar_correo(asunto, cuerpo):
     if not (
         EMAIL_FROM
@@ -580,8 +936,8 @@ def enviar_correo(asunto, cuerpo):
         and EMAIL_TO
     ):
         print(
-            "Faltan EMAIL_FROM, EMAIL_PASSWORD o EMAIL_TO; "
-            "no se envía correo."
+            "Faltan EMAIL_FROM, EMAIL_PASSWORD "
+            "o EMAIL_TO; no se envía correo."
         )
         return
 
@@ -589,7 +945,14 @@ def enviar_correo(asunto, cuerpo):
     mensaje["From"] = EMAIL_FROM
     mensaje["To"] = EMAIL_TO
     mensaje["Subject"] = asunto
-    mensaje.attach(MIMEText(cuerpo, "plain"))
+
+    mensaje.attach(
+        MIMEText(
+            cuerpo,
+            "plain",
+            "utf-8",
+        )
+    )
 
     contexto = ssl.create_default_context()
 
@@ -602,6 +965,7 @@ def enviar_correo(asunto, cuerpo):
             EMAIL_FROM,
             EMAIL_PASSWORD,
         )
+
         servidor.sendmail(
             EMAIL_FROM,
             EMAIL_TO,
@@ -611,29 +975,14 @@ def enviar_correo(asunto, cuerpo):
     print("Correo de aviso enviado.")
 
 
-def guardar_diagnostico(driver):
-    if not DEBUG_SCRAPER:
-        return
+# ---------------------------------------------------------------------
+# Ejecución
+# ---------------------------------------------------------------------
 
-    try:
-        with open(
-            "schedule_debug.html",
-            "w",
-            encoding="utf-8",
-        ) as archivo:
-            archivo.write(driver.page_source)
-
-        driver.save_screenshot("schedule_debug.png")
-
-        debug("Guardado schedule_debug.html")
-        debug("Guardado schedule_debug.png")
-    except Exception as exc:
-        debug(
-            f"No se pudo guardar el diagnóstico: {exc!r}"
-        )
-
-
-def ejecutar(headless=True, keep_browser=False):
+def ejecutar(
+    headless=True,
+    keep_browser=False,
+):
     if not USER or not PASSWORD:
         raise RuntimeError(
             "Las variables USUARIO y CONTRASENA "
@@ -644,41 +993,56 @@ def ejecutar(headless=True, keep_browser=False):
 
     print(
         "Inicio:",
-        ahora.strftime("%Y-%m-%d %H:%M:%S %Z"),
+        ahora.strftime(
+            "%Y-%m-%d %H:%M:%S %Z"
+        ),
     )
 
-    driver = build_driver(headless=headless)
+    driver = build_driver(
+        headless=headless,
+    )
 
     try:
         realizar_login(driver)
 
         driver.get(SCHEDULE_URL)
-        esperar_agenda(driver)
 
+        esperar_agenda(driver)
         cerrar_promocion(driver)
         aceptar_cookies(driver)
 
-        debug(f"URL de la agenda: {driver.current_url}")
+        debug(
+            f"URL de la agenda: {driver.current_url}"
+        )
         debug(f"Título: {driver.title}")
-        debug(f"Ventana: {driver.get_window_size()}")
+        debug(
+            f"Ventana: {driver.get_window_size()}"
+        )
         debug(
             "User-Agent: "
             + driver.execute_script(
-                "return navigator.userAgent"
+                "return navigator.userAgent;"
             )
         )
 
         if not seleccionar_miercoles(driver):
-            guardar_diagnostico(driver)
+            guardar_archivos_diagnostico(
+                driver,
+                "seleccion_dia_final",
+            )
             return
 
         evento = buscar_endurance(driver)
 
         if not evento:
-            guardar_diagnostico(driver)
+            guardar_archivos_diagnostico(
+                driver,
+                "endurance_no_encontrado",
+            )
+
             print(
-                'No se encontró un evento "ENDURANCE" '
-                f"a las {HORA_INICIO}."
+                f'No se encontró "{CLASE_BUSCADA}" '
+                f"de {HORA_INICIO} a {HORA_FIN}."
             )
             return
 
@@ -693,26 +1057,39 @@ def ejecutar(headless=True, keep_browser=False):
         )
 
         if ocupacion is None:
+            debug(
+                "La ocupación todavía no aparece; "
+                "se esperará hasta 10 segundos."
+            )
+
             ocupacion = esperar_ocupacion(
-                driver,
-                evento,
+                driver
             )
 
         if ocupacion is None:
-            guardar_diagnostico(driver)
+            guardar_archivos_diagnostico(
+                driver,
+                "endurance_sin_ocupacion",
+            )
+
             print(
-                "La clase existe, pero la ocupación no aparece "
-                "en el DOM cargado."
+                "La clase existe, pero la ocupación "
+                "no aparece en el DOM cargado."
             )
             print(
-                'Es posible que sea necesario abrir "Detail" '
-                'o "Book" para consultar las plazas.'
+                'Es posible que sea necesario abrir '
+                '"Detail" o "Book" para consultar '
+                "las plazas."
             )
             return
 
-        print(f"Ocupación detectada: {ocupacion}")
+        print(
+            f"Ocupación detectada: {ocupacion}"
+        )
 
-        libres = calcular_plazas_libres(ocupacion)
+        libres = calcular_plazas_libres(
+            ocupacion
+        )
 
         print(
             f"Plazas libres interpretadas: {libres}"
@@ -728,12 +1105,20 @@ def ejecutar(headless=True, keep_browser=False):
                     f"{CLASE_BUSCADA} {HORA_INICIO}"
                 ),
                 cuerpo=(
-                    f"Quedan {libres} plazas libres para la clase "
-                    f"{CLASE_BUSCADA} de las {HORA_INICIO}.\n\n"
+                    f"Quedan {libres} plazas libres "
+                    f"para la clase {CLASE_BUSCADA} "
+                    f"de las {HORA_INICIO}.\n\n"
                     f"Ocupación mostrada por el sitio: "
                     f"{ocupacion}"
                 ),
             )
+
+    except Exception:
+        guardar_archivos_diagnostico(
+            driver,
+            "error_inesperado",
+        )
+        raise
 
     finally:
         if keep_browser:
@@ -742,18 +1127,24 @@ def ejecutar(headless=True, keep_browser=False):
                 "Pulsa Enter para cerrarlo."
             )
             input()
+
         driver.quit()
 
 
-if __name__ == "__main__":
-    import argparse
+# ---------------------------------------------------------------------
+# Entrada principal
+# ---------------------------------------------------------------------
 
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
         "--visible",
         action="store_true",
-        help="Abre Chrome en modo visible para depuración.",
+        help=(
+            "Abre Chrome en modo visible "
+            "para depuración."
+        ),
     )
 
     argumentos = parser.parse_args()
