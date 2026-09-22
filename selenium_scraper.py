@@ -260,18 +260,23 @@ def find_next_endurance_occupation(html):
         for node in [clase.find('div', class_='rvMarginDesc'), clase]:
             if node is None:
                 continue
-            occupation = node.find('span', class_='rvOcupacion')
-            if occupation is not None:
-                occupation_text = occupation.get_text(' ', strip=True)
+            for span in node.find_all('span'):
+                span_text = span.get_text(' ', strip=True)
+                if re.search(r'\d+\s*/\s*\d+', span_text):
+                    occupation_text = span_text
+                    break
+                if re.search(r'\d+\s*places?', span_text, flags=re.I):
+                    occupation_text = span_text
+                    break
+            if occupation_text is not None:
                 break
 
         if occupation_text is None:
-            # fallback robusto: busca un patrón de ocupación en todo el texto del bloque
-            match = re.search(r'(\d+)\s*/\s*(\d+)', text)
+            match = re.search(r'\d+\s*/\s*\d+', text)
             if match:
                 occupation_text = match.group(0)
             else:
-                match = re.search(r'(\d+)\s*places?\b', text, flags=re.I)
+                match = re.search(r'\d+\s*places?', text, flags=re.I)
                 if match:
                     occupation_text = match.group(0)
 
