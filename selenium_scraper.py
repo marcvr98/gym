@@ -236,6 +236,9 @@ def find_next_endurance_occupation(html):
         if '19:15' not in text or '20:15' not in text or 'ENDURANCE' not in text.upper():
             continue
 
+        divs = bloque.find_all('div')
+        if DEBUG_SCRAPER:
+            print(f"[DEBUG] Bloque {i} contiene {len(divs)} divs")
         occupation = bloque.select_one('span.rvOcupacion')
         if occupation:
             texto_occupation = occupation.get_text(' ', strip=True).strip()
