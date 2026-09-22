@@ -236,16 +236,16 @@ def find_next_endurance_occupation(html):
         if '19:15' not in text or '20:15' not in text or 'ENDURANCE' not in text.upper():
             continue
 
-        divs = bloque.find_all('div')
-        if DEBUG_SCRAPER:
-            print(f"[DEBUG] Bloque {i} contiene {len(divs)} divs")
-        occupation = bloque.select_one('span.rvOcupacion')
+        
+        occupation = bloque.find('div', class_='rvMarginDesc')
         if occupation:
-            texto_occupation = occupation.get_text(' ', strip=True).strip()
-            if DEBUG_SCRAPER:
-                print(f"[DEBUG] Bloque {i} con ocupación: {texto_occupation}")
-            return occupation.get_text(' ', strip=True).strip()
-
+            spans = occupation.find_all('span')
+            for span in spans:
+                if 'rvOcupacion' in span.get('class', []):
+                    if DEBUG_SCRAPER:
+                        print(f"[DEBUG] Bloque {i} con ocupación (span): {span.get_text(strip=True)}")
+                    return span.get_text(strip=True)
+                
         match = re.search(r'Occupied places\s*(\d+\s*/\s*\d+)', text, flags=re.I)
         if match:
             if DEBUG_SCRAPER:
