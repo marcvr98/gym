@@ -201,7 +201,16 @@ def login_and_fetch_schedule(keep_browser=False, headless=True):
                     print('El día activo parece ser martes; selecciono el siguiente día (miércoles).')
                     try:
                         anchors[active_index+1].click()
-                        time.sleep(1.2)
+                        if DEBUG_SCRAPER:
+                            print('[DEBUG] Esperando a que la agenda del miércoles cargue...')
+                        time.sleep(3.5)
+                        if DEBUG_SCRAPER:
+                            html_debug = driver.page_source
+                            soup_debug = BeautifulSoup(html_debug, 'lxml')
+                            blocks_debug = soup_debug.select("div[id^='bloqueClass']")
+                            for idx, bloque in enumerate(blocks_debug[:12]):
+                                txt = bloque.get_text(' ', strip=True)
+                                print(f"[DEBUG] bloque[{idx}] -> {txt[:180]}")
                     except Exception:
                         pass
         except Exception:
@@ -231,10 +240,9 @@ def find_next_endurance_occupation(html):
 
     if DEBUG_SCRAPER:
         print(f"[DEBUG] Bloques de clase analizados: {len(blocks)}")
-        for idx, bloque in enumerate(blocks[:10]):
+        for idx, bloque in enumerate(blocks[:20]):
             text = bloque.get_text(' ', strip=True)
-            if '19:15' in text or '20:15' in text or 'ENDURANCE' in text.upper():
-                print(f"[DEBUG] bloque[{idx}]: {text[:220]}")
+            print(f"[DEBUG] bloque[{idx}] -> {text[:200]}")
 
     for bloque in blocks:
         text = bloque.get_text(' ', strip=True)
