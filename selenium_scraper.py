@@ -11,6 +11,8 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 
@@ -40,6 +42,7 @@ SMTP_PORT = 465                  # 465 = SSL directo
 EMAIL_FROM = os.getenv('EMAIL_FROM')
 EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
 EMAIL_TO = os.getenv('EMAIL_TO')
+DEBUG_SCRAPER = os.getenv('DEBUG_SCRAPER', '').lower() in {'1', 'true', 'yes', 'on'}
 
 
 def enviar_correo(asunto: str, cuerpo: str) -> None:
@@ -143,6 +146,13 @@ def login_and_fetch_schedule(keep_browser=False, headless=True):
 
         # after login, go to schedule
         driver.get(BASE + '/schedule')
+        try:
+            WebDriverWait(driver, 20).until(
+                lambda d: d.execute_script("return document.readyState") == "complete"
+                and (d.find_elements(By.ID, "clasesDiaSel") or d.find_elements(By.XPATH, "//div[contains(@class,'weekNavigator')]"))
+            )
+        except Exception:
+            pass
         time.sleep(3)
         #cerrar display si aparece
         try:
@@ -197,6 +207,12 @@ def login_and_fetch_schedule(keep_browser=False, headless=True):
         except Exception:
             pass
         html = driver.page_source
+        if DEBUG_SCRAPER:
+            print(f"[DEBUG] URL del horario: {driver.current_url}")
+            print(f"[DEBUG] Longitud del HTML: {len(html)} bytes")
+            soup_debug = BeautifulSoup(html, 'lxml')
+            title_debug = soup_debug.title.get_text(' ', strip=True) if soup_debug.title else 'N/A'
+            print(f"[DEBUG] Título de la página: {title_debug}")
         if keep_browser:
             return driver, html
         return html
@@ -207,23 +223,61 @@ def login_and_fetch_schedule(keep_browser=False, headless=True):
 
 def find_next_endurance_occupation(html):
     soup = BeautifulSoup(html, 'lxml')
-    # find all blocks that contain 'endurance' and a time
+
+    if DEBUG_SCRAPER:
+        print(f"[DEBUG] HTML recibido para parseo: {len(html)} bytes")
 
     bloque_principal = soup.find('div', id='clasesDiaSel')
-    clases = bloque_principal.find_all('div') if bloque_principal else []
-    if clases:
-        for clase in clases:
-            hora = clase.find('span', class_='rvHora')
-            #la hora viene así: 07:00 - 08:00
-            if hora and '19:15' in hora.get_text() and '20:15' in hora.get_text():
-                text = clase.find('span', class_='rvNombreCl')
-                if "ENDURANCE" in text.get_text().upper():
-                    # check if reserved and capacity are present
-                    margen = clase.find('div', class_='rvMarginDesc')
-                    occupation = margen.find('span', class_='rvOcupacion') if margen else None
-                    texto = occupation.get_text() if occupation else ''
-                    plazas = texto.split('places ')[1] if 'places ' in texto else texto
-                    return plazas.strip()  # e.g., "3/20" or "un número desconocido de personas"
+    candidates = bloque_principal.find_all(['div', 'li', 'article']) if bloque_principal else soup.find_all(['div', 'li', 'article'])
+
+    if DEBUG_SCRAPER:
+        print(f"[DEBUG] Candidatos totales analizados: {len(candidates)}")
+        for idx, clase in enumerate(candidates[:15]):
+            text = " ".join(part.strip() for part in clase.stripped_strings)
+            snippet = text[:220].replace('\n', ' ')
+            if '19:15' in snippet or '20:15' in snippet or 'ENDURANCE' in snippet.upper():
+                print(f"[DEBUG] candidato[{idx}]: {snippet}")
+
+    for clase in candidates:
+        text = " ".join(part.strip() for part in clase.stripped_strings)
+        if not text:
+            continue
+
+        hora = clase.find('span', class_='rvHora')
+        if not hora:
+            hora_text = text
+        else:
+            hora_text = hora.get_text(' ', strip=True)
+
+        if '19:15' not in hora_text and '19:15' not in text:
+            continue
+        if '20:15' not in hora_text and '20:15' not in text:
+            continue
+        if 'ENDURANCE' not in text.upper():
+            continue
+
+        margen = clase.find('div', class_='rvMarginDesc')
+        occupation = margen.find('span', class_='rvOcupacion') if margen else None
+        if occupation is None:
+            occupation = clase.find('span', class_='rvOcupacion')
+        if occupation is None:
+            occupation = soup.find('span', string=re.compile(r'\d+\s*/\s*\d+'))
+
+        if occupation is None:
+            if DEBUG_SCRAPER:
+                print(f"[DEBUG] Se encontró un bloque con horario/nombre, pero no se halló la ocupación: {text[:400]}")
+            return None
+
+        texto = occupation.get_text(' ', strip=True)
+        if not texto:
+            texto = text
+        plazas = texto.split('places ', 1)[1] if 'places ' in texto.lower() else texto
+        return plazas.strip()
+
+    if DEBUG_SCRAPER:
+        print("[DEBUG] No se encontró ningún bloque con 'ENDURANCE' y '19:15 - 20:15' en el documento.")
+        print(f"[DEBUG] Primeros 3000 caracteres del HTML: {html[:3000]}")
+    return None
 
 if __name__ == '__main__':
     import argparse
