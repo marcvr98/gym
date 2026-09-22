@@ -261,9 +261,6 @@ def find_next_endurance_occupation(html):
         if DEBUG_SCRAPER:
             print(f"[DEBUG] Bloque encontrado pero sin ocupación clara: {text[:400]}")
 
-    if DEBUG_SCRAPER:
-        print("[DEBUG] No se encontró ningún bloque con 'ENDURANCE' y '19:15 - 20:15' en el documento.")
-        print(f"[DEBUG] Primeros 3000 caracteres del HTML: {html[:3000]}")
     return None
 
 if __name__ == '__main__':
