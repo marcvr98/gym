@@ -40,4 +40,5 @@ jobs:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          DEBUG_SCRAPER: "1"
         run: python selenium_scraper.py
