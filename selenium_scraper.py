@@ -227,65 +227,37 @@ def find_next_endurance_occupation(html):
     if DEBUG_SCRAPER:
         print(f"[DEBUG] HTML recibido para parseo: {len(html)} bytes")
 
-    bloque_principal = soup.find('div', id='clasesDiaSel')
-    candidates = bloque_principal.find_all(['div', 'li', 'article']) if bloque_principal else soup.find_all(['div', 'li', 'article'])
+    blocks = soup.select("div[id^='bloqueClass']")
 
     if DEBUG_SCRAPER:
-        print(f"[DEBUG] Candidatos totales analizados: {len(candidates)}")
-        for idx, clase in enumerate(candidates[:15]):
-            text = " ".join(part.strip() for part in clase.stripped_strings)
-            snippet = text[:220].replace('\n', ' ')
-            if '19:15' in snippet or '20:15' in snippet or 'ENDURANCE' in snippet.upper():
-                print(f"[DEBUG] candidato[{idx}]: {snippet}")
+        print(f"[DEBUG] Bloques de clase analizados: {len(blocks)}")
+        for idx, bloque in enumerate(blocks[:10]):
+            text = bloque.get_text(' ', strip=True)
+            if '19:15' in text or '20:15' in text or 'ENDURANCE' in text.upper():
+                print(f"[DEBUG] bloque[{idx}]: {text[:220]}")
 
-    for clase in candidates:
-        text = " ".join(part.strip() for part in clase.stripped_strings)
+    for bloque in blocks:
+        text = bloque.get_text(' ', strip=True)
         if not text:
             continue
 
-        hora = clase.find('span', class_='rvHora')
-        if not hora:
-            hora_text = text
-        else:
-            hora_text = hora.get_text(' ', strip=True)
-
-        if '19:15' not in hora_text and '19:15' not in text:
-            continue
-        if '20:15' not in hora_text and '20:15' not in text:
-            continue
-        if 'ENDURANCE' not in text.upper():
+        if '19:15' not in text or '20:15' not in text or 'ENDURANCE' not in text.upper():
             continue
 
-        occupation_text = None
-        for node in [clase.find('div', class_='rvMarginDesc'), clase]:
-            if node is None:
-                continue
-            for span in node.find_all('span'):
-                span_text = span.get_text(' ', strip=True)
-                if re.search(r'\d+\s*/\s*\d+', span_text):
-                    occupation_text = span_text
-                    break
-                if re.search(r'\d+\s*places?', span_text, flags=re.I):
-                    occupation_text = span_text
-                    break
-            if occupation_text is not None:
-                break
+        occupation = bloque.select_one('span.rvOcupacion')
+        if occupation:
+            return occupation.get_text(' ', strip=True).strip()
 
-        if occupation_text is None:
-            match = re.search(r'\d+\s*/\s*\d+', text)
-            if match:
-                occupation_text = match.group(0)
-            else:
-                match = re.search(r'\d+\s*places?', text, flags=re.I)
-                if match:
-                    occupation_text = match.group(0)
+        match = re.search(r'Occupied places\s*(\d+\s*/\s*\d+)', text, flags=re.I)
+        if match:
+            return match.group(0).strip()
 
-        if occupation_text is None:
-            if DEBUG_SCRAPER:
-                print(f"[DEBUG] Se encontró un bloque con horario/nombre, pero no se halló la ocupación: {text[:400]}")
-            continue
+        match = re.search(r'(\d+\s*/\s*\d+)', text)
+        if match:
+            return match.group(0).strip()
 
-        return occupation_text.strip()
+        if DEBUG_SCRAPER:
+            print(f"[DEBUG] Bloque encontrado pero sin ocupación clara: {text[:400]}")
 
     if DEBUG_SCRAPER:
         print("[DEBUG] No se encontró ningún bloque con 'ENDURANCE' y '19:15 - 20:15' en el documento.")
